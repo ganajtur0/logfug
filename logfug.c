@@ -1,9 +1,10 @@
 #include <stdio.h>
-#include <regex.h>
 #include <stdbool.h>
 
 #define ALLOWED "abcd*~+()"
 #define ALLOWED_LEN 9
+
+#define IS_VARIABLE(x) ( 'a' <= x && 'd' >= x )
 
 typedef
 enum {
@@ -11,6 +12,17 @@ enum {
     NOT_ALLOWED,
     PAREN_MISMATCH,
 } PARSE_ERROR;
+
+bool
+mult_intended ( char slice[3] ) {
+    return (
+                ( IS_VARIABLE(slice[0]) && IS_VARIABLE(slice[1]) )  ||
+                ( IS_VARIABLE(slice[0]) && slice[1] == '~' )        ||
+                ( IS_VARIABLE(slice[0]) && slice[1] == '(' )        ||
+                ( IS_VARIABLE(slice[1]) && slice[0] == ')' )        ||
+                ( slice[0] == ')' && slice[1] == '(' )
+           );
+}
 
 void
 parserror(PARSE_ERROR err){
@@ -104,11 +116,10 @@ bool_stack_peek(bool_stack *stack, bool *success){
 
 bool
 char_allowed(char c){
-    bool allowed = false;
     for (char i = 0; i<ALLOWED_LEN; i++)
         if (ALLOWED[i])
-            allowed = true;
-    return allowed;
+            return true;
+    return false;
 }
 
 char
@@ -120,7 +131,7 @@ _next_token(char *s){
 }
 
 char
-next_token(regex_t *re, char **s, bool *m){
+next_token(char **s, bool *m){
 
     char *tmp = *s;
     (*s)++;
@@ -135,7 +146,7 @@ next_token(regex_t *re, char **s, bool *m){
         to_test[1] = _next_token(*s);
         to_test[2] = '\0';
 
-        if (!regexec(re, to_test, 0, NULL, 0)){
+        if (mult_intended(to_test)) {
             if (!(*m)){
                 *m = true;
                 char tmp2 = **s;
@@ -153,19 +164,19 @@ next_token(regex_t *re, char **s, bool *m){
 }
 
 PARSE_ERROR
-parse_RPN(regex_t *re, char **expression, bool *m, char_stack *RPN){
+parse_RPN(char **expression, bool *m, char_stack *RPN){
 
     char_stack operators;
     operators.count = 0;
 
     char token, top;
     bool r;
-    while ( (token=next_token(re, expression, m)) != '\0' ){
+    while ( (token=next_token(expression, m)) != '\0' ){
 
         if (!char_allowed(token))
             return NOT_ALLOWED;
 
-        if (token >= 'a' && token <= 'd')
+        if (IS_VARIABLE(token))
             char_stack_push(RPN, token);
 
         else if (token == '(')
@@ -206,11 +217,12 @@ parse_RPN(regex_t *re, char **expression, bool *m, char_stack *RPN){
 
 bool
 solve_RPN(char_stack *RPN, bool nibble[4]){
-    bool_stack stack;
-    stack.count = 0;
+
+    bool_stack stack; stack.count = 0;
+
     for (int i = 0; i<RPN->count; i++){
         char c = RPN->items[i];
-        if (c >= 'a' && c<='d')
+        if (IS_VARIABLE(c))
             bool_stack_push(&stack, nibble[c-'a']);
         else if (c == '~')
             bool_stack_push(&stack, !(bool_stack_pop(&stack)) );
@@ -247,14 +259,14 @@ truthtable(char_stack *RPN, bool r){
                 test[bit] = tmp;
             printf("%d", tmp );
         }
-        putc('\t', stdout);
+        putchar('\t');
         printf(solve_RPN(RPN, test) ? "1\n" : "0\n");
     }
 }
 
 int main(int argc, char *argv[]){
 
-    char buffer[128], *expression = (void*)(0);
+    char *expression = (void*)(0);
 
     bool reverse = false;
 
@@ -277,21 +289,12 @@ int main(int argc, char *argv[]){
         return 0;
     }
 
-    regex_t re;
-
     int rc;
-
-    if ( (rc = regcomp(&re, "[)][~a-d(]|[a-d][~a-d]", REG_EXTENDED) != 0) ){
-        fprintf(stderr, "\nCould not compile regular expression:\n");
-        regerror(rc, &re, buffer, 128);
-        fprintf(stderr, "\t%s\n\n", buffer);
-        return 1;
-    }
 
     expression-=1; bool m=false;
     char_stack RPN; RPN.count = 0;
 
-    if ( (rc=parse_RPN(&re, &expression, &m, &RPN)) != NONE){
+    if ( (rc=parse_RPN(&expression, &m, &RPN)) != NONE){
         fprintf(stderr, "\n Invalid expression!\n\t");
         parserror(rc);
         return 1;
